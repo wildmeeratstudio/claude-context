@@ -131,6 +131,12 @@ export interface VectorDatabase {
      * Returns true if collection can be created, false if limit exceeded
      */
     checkCollectionLimit(): Promise<boolean>;
+
+    /**
+     * Flush data to make it immediately available for queries
+     * @param collectionName Collection name
+     */
+    flush(collectionName: string): Promise<void>;
 }
 
 /**

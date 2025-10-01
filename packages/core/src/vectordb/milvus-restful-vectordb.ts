@@ -798,4 +798,23 @@ export class MilvusRestfulVectorDatabase implements VectorDatabase {
         console.warn('[MilvusRestfulDB] ⚠️  checkCollectionLimit not implemented for REST API - returning true');
         return true;
     }
+
+    async flush(collectionName: string): Promise<void> {
+        await this.ensureInitialized();
+
+        try {
+            const restfulConfig = this.config as MilvusRestfulConfig;
+            console.log(`[MilvusRestfulDB] 💾 Flushing collection '${collectionName}' to make data available...`);
+
+            await this.makeRequest('/collections/flush', 'POST', {
+                collectionName,
+                dbName: restfulConfig.database
+            });
+
+            console.log(`[MilvusRestfulDB] ✅ Collection '${collectionName}' flushed successfully`);
+        } catch (error) {
+            console.error(`[MilvusRestfulDB] ❌ Failed to flush collection '${collectionName}':`, error);
+            throw error;
+        }
+    }
 }

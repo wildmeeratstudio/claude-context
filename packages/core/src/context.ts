@@ -253,7 +253,10 @@ export class Context {
 
     /**
      * Index a codebase for semantic search
-     * @param codebasePath Codebase root path
+     * @param codebasePath Codebase root path OR a single file path
+     *                     - If a directory: indexes all supported files recursively
+     *                     - If a file: indexes only that file
+     *                     Each unique path gets its own collection for isolation
      * @param progressCallback Optional progress callback function
      * @param forceReindex Whether to recreate the collection even if it exists
      * @returns Indexing statistics
@@ -265,12 +268,27 @@ export class Context {
     ): Promise<{ indexedFiles: number; totalChunks: number; status: 'completed' | 'limit_reached' }> {
         const isHybrid = this.getIsHybrid();
         const searchType = isHybrid === true ? 'hybrid search' : 'semantic search';
-        console.log(`[Context] 🚀🚀🚀🚀🚀🚀🚀 Starting to index codebase with ${searchType}: ${codebasePath}`);
+        console.log(`[Context] 🚀 Starting to index codebase with ${searchType}: ${codebasePath}`);
 
-        // 1. Load ignore patterns from various ignore files
-        await this.loadIgnorePatterns(codebasePath);
+        // Check if codebasePath is a file - if so, we need directory for ignore patterns but keep file path for collection
+        let ignorePatternPath = codebasePath;
+        let isSingleFile = false;
+        try {
+            const stats = await fs.promises.stat(codebasePath);
+            if (stats.isFile()) {
+                ignorePatternPath = path.dirname(codebasePath);
+                isSingleFile = true;
+                console.log(`[Context] 📄 Single file detected: ${codebasePath}`);
+                console.log(`[Context] 📂 Using directory for ignore patterns: ${ignorePatternPath}`);
+            }
+        } catch (error) {
+            console.warn(`[Context] ⚠️  Could not stat path: ${codebasePath}`);
+        }
 
-        // 2. Check and prepare vector collection
+        // 1. Load ignore patterns from directory (or codebase root if it's a directory)
+        await this.loadIgnorePatterns(ignorePatternPath);
+
+        // 2. Check and prepare vector collection (use original codebasePath for unique collection name)
         progressCallback?.({ phase: 'Preparing collection...', current: 0, total: 100, percentage: 0 });
         console.log(`Debug2: Preparing vector collection for codebase${forceReindex ? ' (FORCE REINDEX)' : ''}`);
         await this.prepareCollection(codebasePath, forceReindex);
@@ -309,6 +327,16 @@ export class Context {
         );
 
         console.log(`[Context] ✅ Codebase indexing completed! Processed ${result.processedFiles} files in total, generated ${result.totalChunks} code chunks`);
+
+        // Flush data to make it immediately available
+        try {
+            const collectionName = this.getCollectionName(codebasePath);
+            console.log(`[Context] 💾 Flushing ${result.totalChunks} chunks to collection...`);
+            await this.vectorDatabase.flush(collectionName);
+            console.log(`[Context] ✅ Data flushed successfully`);
+        } catch (error) {
+            console.warn(`[Context] ⚠️  Flush failed (non-critical):`, error);
+        }
 
         progressCallback?.({
             phase: 'Indexing complete!',
@@ -391,6 +419,243 @@ export class Context {
         progressCallback?.({ phase: 'Re-indexing complete!', current: totalChanges, total: totalChanges, percentage: 100 });
 
         return { added: added.length, removed: removed.length, modified: modified.length };
+    }
+
+    /**
+     * Index a single file into the codebase collection
+     * @param filePath Absolute path to the file
+     * @param codebasePath Base path of the codebase (for collection name)
+     * @param progressCallback Optional progress callback
+     * @returns Indexing statistics
+     */
+    async indexFile(
+        filePath: string,
+        codebasePath: string,
+        progressCallback?: (progress: { phase: string; current: number; total: number; percentage: number }) => void
+    ): Promise<{ indexedChunks: number; status: 'completed' | 'error' }> {
+        const isHybrid = this.getIsHybrid();
+        const searchType = isHybrid === true ? 'hybrid search' : 'semantic search';
+        console.log(`[Context] 📄 Indexing single file with ${searchType}: ${filePath}`);
+
+        try {
+            // 1. Validate file
+            progressCallback?.({ phase: 'Validating file...', current: 0, total: 100, percentage: 0 });
+            await this.validateFile(filePath);
+
+            // 2. Ensure collection exists
+            progressCallback?.({ phase: 'Preparing collection...', current: 10, total: 100, percentage: 10 });
+            const collectionName = this.getCollectionName(codebasePath);
+            const hasCollection = await this.vectorDatabase.hasCollection(collectionName);
+
+            if (!hasCollection) {
+                console.log(`[Context] 📋 Collection doesn't exist, creating it...`);
+                await this.prepareCollection(codebasePath, false);
+            }
+
+            // 3. Process the file
+            progressCallback?.({ phase: 'Processing file...', current: 30, total: 100, percentage: 30 });
+            console.log(`[Context] 📊 Processing file: ${filePath}`);
+
+            const result = await this.processFileList(
+                [filePath],
+                codebasePath,
+                () => {
+                    progressCallback?.({ phase: 'Generating embeddings...', current: 70, total: 100, percentage: 70 });
+                }
+            );
+
+            console.log(`[Context] 📊 File processing complete: ${result.processedFiles} files, ${result.totalChunks} chunks`);
+
+            // 4. Flush data to make it immediately available
+            progressCallback?.({ phase: 'Flushing data...', current: 80, total: 100, percentage: 80 });
+            try {
+                await this.vectorDatabase.flush(collectionName);
+                console.log(`[Context] ✅ Data flushed to collection ${collectionName}`);
+            } catch (error) {
+                console.warn(`[Context] ⚠️  Flush failed (non-critical):`, error);
+            }
+
+            // 5. Verify data was inserted
+            progressCallback?.({ phase: 'Verifying insertion...', current: 90, total: 100, percentage: 90 });
+            const relativePath = path.relative(codebasePath, filePath);
+            const escapedPath = relativePath.replace(/\\/g, '\\\\');
+
+            try {
+                const verifyResults = await this.vectorDatabase.query(
+                    collectionName,
+                    `relativePath == "${escapedPath}"`,
+                    ['id'],
+                    10
+                );
+                console.log(`[Context] ✓ Verification query: Found ${verifyResults.length} chunks for file ${relativePath}`);
+            } catch (error) {
+                console.warn(`[Context] ⚠️  Verification query failed:`, error);
+            }
+
+            // 5. Get overall collection stats
+            try {
+                const stats = await this.getIndexStats(codebasePath);
+                console.log(`[Context] 📊 Collection stats: ${stats.totalChunks} total chunks, ${stats.uniqueFiles} unique files`);
+            } catch (error) {
+                console.warn(`[Context] ⚠️  Could not get collection stats:`, error);
+            }
+
+            progressCallback?.({ phase: 'File indexed!', current: 100, total: 100, percentage: 100 });
+            console.log(`[Context] ✅ File indexed successfully: ${result.totalChunks} chunks created`);
+
+            return {
+                indexedChunks: result.totalChunks,
+                status: 'completed'
+            };
+        } catch (error) {
+            console.error(`[Context] ❌ Failed to index file ${filePath}:`, error);
+            if (error instanceof Error) {
+                console.error('[Context] Error stack:', error.stack);
+            }
+            progressCallback?.({ phase: 'Error indexing file', current: 0, total: 100, percentage: 0 });
+            return {
+                indexedChunks: 0,
+                status: 'error'
+            };
+        }
+    }
+
+    /**
+     * Update an existing file in the index
+     * This removes old chunks and re-indexes the file
+     * @param filePath Absolute path to the file
+     * @param codebasePath Base path of the codebase
+     * @param progressCallback Optional progress callback
+     * @returns Update statistics
+     */
+    async updateFile(
+        filePath: string,
+        codebasePath: string,
+        progressCallback?: (progress: { phase: string; current: number; total: number; percentage: number }) => void
+    ): Promise<{ updatedChunks: number; status: 'completed' | 'error' }> {
+        console.log(`[Context] 🔄 Updating file in index: ${filePath}`);
+
+        try {
+            // 1. Validate file
+            progressCallback?.({ phase: 'Validating file...', current: 0, total: 100, percentage: 0 });
+            await this.validateFile(filePath);
+
+            const collectionName = this.getCollectionName(codebasePath);
+            const relativePath = path.relative(codebasePath, filePath);
+
+            // 2. Delete existing chunks
+            progressCallback?.({ phase: 'Removing old chunks...', current: 20, total: 100, percentage: 20 });
+            await this.deleteFileChunks(collectionName, relativePath);
+
+            // 3. Re-index the file
+            progressCallback?.({ phase: 'Re-indexing file...', current: 40, total: 100, percentage: 40 });
+            const result = await this.processFileList(
+                [filePath],
+                codebasePath,
+                () => {
+                    progressCallback?.({ phase: 'Generating embeddings...', current: 70, total: 100, percentage: 70 });
+                }
+            );
+
+            // 4. Flush data
+            progressCallback?.({ phase: 'Flushing data...', current: 90, total: 100, percentage: 90 });
+            try {
+                await this.vectorDatabase.flush(collectionName);
+                console.log(`[Context] ✅ Data flushed for updated file`);
+            } catch (error) {
+                console.warn(`[Context] ⚠️  Flush failed (non-critical):`, error);
+            }
+
+            progressCallback?.({ phase: 'File updated!', current: 100, total: 100, percentage: 100 });
+            console.log(`[Context] ✅ File updated successfully: ${result.totalChunks} chunks`);
+
+            return {
+                updatedChunks: result.totalChunks,
+                status: 'completed'
+            };
+        } catch (error) {
+            console.error(`[Context] ❌ Failed to update file ${filePath}:`, error);
+            progressCallback?.({ phase: 'Error updating file', current: 0, total: 100, percentage: 0 });
+            return {
+                updatedChunks: 0,
+                status: 'error'
+            };
+        }
+    }
+
+    /**
+     * Remove a file from the index
+     * @param filePath Absolute path to the file
+     * @param codebasePath Base path of the codebase
+     * @returns Number of chunks deleted
+     */
+    async removeFile(
+        filePath: string,
+        codebasePath: string
+    ): Promise<{ deletedChunks: number; status: 'completed' | 'error' }> {
+        console.log(`[Context] 🗑️  Removing file from index: ${filePath}`);
+
+        try {
+            const collectionName = this.getCollectionName(codebasePath);
+            const relativePath = path.relative(codebasePath, filePath);
+
+            // Check if collection exists
+            const hasCollection = await this.vectorDatabase.hasCollection(collectionName);
+            if (!hasCollection) {
+                console.log(`[Context] ⚠️  Collection doesn't exist, nothing to remove`);
+                return { deletedChunks: 0, status: 'completed' };
+            }
+
+            // Query to count chunks before deletion
+            const escapedPath = relativePath.replace(/\\/g, '\\\\');
+            const results = await this.vectorDatabase.query(
+                collectionName,
+                `relativePath == "${escapedPath}"`,
+                ['id']
+            );
+
+            const chunkCount = results.length;
+
+            // Delete chunks
+            await this.deleteFileChunks(collectionName, relativePath);
+
+            console.log(`[Context] ✅ File removed: ${chunkCount} chunks deleted`);
+            return {
+                deletedChunks: chunkCount,
+                status: 'completed'
+            };
+        } catch (error) {
+            console.error(`[Context] ❌ Failed to remove file ${filePath}:`, error);
+            return {
+                deletedChunks: 0,
+                status: 'error'
+            };
+        }
+    }
+
+    /**
+     * Validate that a file exists and is supported
+     * @param filePath Path to validate
+     */
+    private async validateFile(filePath: string): Promise<void> {
+        // Check file exists and get stats
+        let stats;
+        try {
+            stats = await fs.promises.stat(filePath);
+        } catch (error) {
+            throw new Error(`File does not exist: ${filePath}`);
+        }
+
+        // Check file is not a directory
+        if (stats.isDirectory()) {
+            throw new Error(`Path is a directory, not a file: ${filePath}`);
+        }
+
+        // Check extension is supported
+        const ext = path.extname(filePath);
+        if (!this.supportedExtensions.includes(ext)) {
+            throw new Error(`File extension ${ext} is not supported. Supported extensions: ${this.supportedExtensions.join(', ')}`);
+        }
     }
 
     private async deleteFileChunks(collectionName: string, relativePath: string): Promise<void> {
@@ -538,6 +803,37 @@ export class Context {
     }
 
     /**
+     * Get statistics about the indexed codebase
+     * @param codebasePath Codebase path
+     * @returns Statistics including total chunks and file count
+     */
+    async getIndexStats(codebasePath: string): Promise<{ totalChunks: number; uniqueFiles: number; collectionName: string }> {
+        const collectionName = this.getCollectionName(codebasePath);
+
+        const hasCollection = await this.vectorDatabase.hasCollection(collectionName);
+        if (!hasCollection) {
+            return { totalChunks: 0, uniqueFiles: 0, collectionName };
+        }
+
+        try {
+            // Query all documents to count them
+            const allDocs = await this.vectorDatabase.query(collectionName, '', ['id', 'relativePath'], 100000);
+
+            // Count unique files
+            const uniquePaths = new Set(allDocs.map(doc => doc.relativePath));
+
+            return {
+                totalChunks: allDocs.length,
+                uniqueFiles: uniquePaths.size,
+                collectionName
+            };
+        } catch (error) {
+            console.warn(`[Context] ⚠️  Failed to get index stats:`, error);
+            return { totalChunks: 0, uniqueFiles: 0, collectionName };
+        }
+    }
+
+    /**
      * Clear index
      * @param codebasePath Codebase path to clear index for
      * @param progressCallback Optional progress callback function
@@ -676,25 +972,80 @@ export class Context {
     private async getCodeFiles(codebasePath: string): Promise<string[]> {
         const files: string[] = [];
 
+        // Check if the initial path is a file rather than a directory
+        try {
+            const initialStats = await fs.promises.stat(codebasePath);
+            if (initialStats.isFile()) {
+                // If it's a file, just return it if it has a supported extension
+                const ext = path.extname(codebasePath);
+                if (this.supportedExtensions.includes(ext)) {
+                    console.log(`[Context] 📄 Single file detected: ${codebasePath}`);
+                    return [codebasePath];
+                } else {
+                    console.warn(`[Context] ⚠️  File has unsupported extension ${ext}: ${codebasePath}`);
+                    return [];
+                }
+            }
+        } catch (error) {
+            console.warn(`[Context] ⚠️  Could not access path: ${codebasePath}`);
+            return [];
+        }
+
         const traverseDirectory = async (currentPath: string) => {
-            const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
-
-            for (const entry of entries) {
-                const fullPath = path.join(currentPath, entry.name);
-
-                // Check if path matches ignore patterns
-                if (this.matchesIgnorePattern(fullPath, codebasePath)) {
-                    continue;
+            try {
+                // Verify path is actually a directory before trying to read it
+                const stats = await fs.promises.stat(currentPath);
+                if (!stats.isDirectory()) {
+                    console.warn(`[Context] ⚠️  Skipping non-directory path: ${currentPath}`);
+                    return;
                 }
 
-                if (entry.isDirectory()) {
-                    await traverseDirectory(fullPath);
-                } else if (entry.isFile()) {
-                    const ext = path.extname(entry.name);
-                    if (this.supportedExtensions.includes(ext)) {
-                        files.push(fullPath);
+                const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
+
+                for (const entry of entries) {
+                    const fullPath = path.join(currentPath, entry.name);
+
+                    // Check if path matches ignore patterns
+                    if (this.matchesIgnorePattern(fullPath, codebasePath)) {
+                        continue;
+                    }
+
+                    try {
+                        // For symlinks and other edge cases, verify the actual type
+                        if (entry.isSymbolicLink()) {
+                            const linkStats = await fs.promises.stat(fullPath);
+                            if (linkStats.isDirectory()) {
+                                await traverseDirectory(fullPath);
+                            } else if (linkStats.isFile()) {
+                                const ext = path.extname(entry.name);
+                                if (this.supportedExtensions.includes(ext)) {
+                                    files.push(fullPath);
+                                }
+                            }
+                        } else if (entry.isDirectory()) {
+                            await traverseDirectory(fullPath);
+                        } else if (entry.isFile()) {
+                            const ext = path.extname(entry.name);
+                            if (this.supportedExtensions.includes(ext)) {
+                                files.push(fullPath);
+                            }
+                        }
+                    } catch (error) {
+                        // Skip entries that cause errors (broken symlinks, permission issues, etc.)
+                        console.warn(`[Context] ⚠️  Skipping problematic entry ${fullPath}: ${error instanceof Error ? error.message : String(error)}`);
+                        continue;
                     }
                 }
+            } catch (error) {
+                // Handle errors when reading directory
+                if ((error as NodeJS.ErrnoException).code === 'ENOTDIR') {
+                    console.warn(`[Context] ⚠️  Path is not a directory, skipping: ${currentPath}`);
+                } else if ((error as NodeJS.ErrnoException).code === 'EACCES') {
+                    console.warn(`[Context] ⚠️  Permission denied, skipping: ${currentPath}`);
+                } else {
+                    console.warn(`[Context] ⚠️  Error reading directory ${currentPath}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+                return;
             }
         };
 
@@ -733,11 +1084,17 @@ export class Context {
                 const splitter = this.selectSplitter(language);
                 const chunks = await splitter.split(content, language, filePath);
 
+                console.log(`[Context] 📝 File ${path.basename(filePath)} (${language}): ${chunks.length} chunks generated from ${Math.round(content.length / 1024)}KB`);
+
                 // Log files with many chunks or large content
                 if (chunks.length > 50) {
                     console.warn(`[Context] ⚠️  File ${filePath} generated ${chunks.length} chunks (${Math.round(content.length / 1024)}KB)`);
                 } else if (content.length > 100000) {
                     console.log(`📄 Large file ${filePath}: ${Math.round(content.length / 1024)}KB -> ${chunks.length} chunks`);
+                }
+
+                if (chunks.length === 0) {
+                    console.warn(`[Context] ⚠️  No chunks generated for ${filePath}`);
                 }
 
                 // Add chunks to buffer
@@ -837,7 +1194,12 @@ export class Context {
                     throw new Error(`Missing filePath in chunk metadata at index ${index}`);
                 }
 
-                const relativePath = path.relative(codebasePath, chunk.metadata.filePath);
+                // Calculate relative path - handle case where codebasePath is a file
+                let relativePath = path.relative(codebasePath, chunk.metadata.filePath);
+                if (!relativePath || relativePath === '') {
+                    // If codebasePath is the file itself, use just the filename
+                    relativePath = path.basename(chunk.metadata.filePath);
+                }
                 const fileExtension = path.extname(chunk.metadata.filePath);
                 const { filePath, startLine, endLine, ...restMetadata } = chunk.metadata;
 
@@ -859,7 +1221,9 @@ export class Context {
             });
 
             // Store to vector database
-            await this.vectorDatabase.insertHybrid(this.getCollectionName(codebasePath), documents);
+            const collectionName = this.getCollectionName(codebasePath);
+            await this.vectorDatabase.insertHybrid(collectionName, documents);
+            console.log(`[Context] ✅ Inserted ${documents.length} hybrid documents into ${collectionName}`);
         } else {
             // Create regular vector documents
             const documents: VectorDocument[] = chunks.map((chunk, index) => {
@@ -867,7 +1231,12 @@ export class Context {
                     throw new Error(`Missing filePath in chunk metadata at index ${index}`);
                 }
 
-                const relativePath = path.relative(codebasePath, chunk.metadata.filePath);
+                // Calculate relative path - handle case where codebasePath is a file
+                let relativePath = path.relative(codebasePath, chunk.metadata.filePath);
+                if (!relativePath || relativePath === '') {
+                    // If codebasePath is the file itself, use just the filename
+                    relativePath = path.basename(chunk.metadata.filePath);
+                }
                 const fileExtension = path.extname(chunk.metadata.filePath);
                 const { filePath, startLine, endLine, ...restMetadata } = chunk.metadata;
 
@@ -889,7 +1258,9 @@ export class Context {
             });
 
             // Store to vector database
-            await this.vectorDatabase.insert(this.getCollectionName(codebasePath), documents);
+            const collectionName = this.getCollectionName(codebasePath);
+            await this.vectorDatabase.insert(collectionName, documents);
+            console.log(`[Context] ✅ Inserted ${documents.length} documents into ${collectionName}`);
         }
     }
 

@@ -762,4 +762,18 @@ export class MilvusVectorDatabase implements VectorDatabase {
             throw error;
         }
     }
+
+    async flush(collectionName: string): Promise<void> {
+        await this.ensureInitialized();
+
+        if (!this.client) {
+            throw new Error('MilvusClient is not initialized after ensureInitialized().');
+        }
+
+        console.log(`[MilvusDB] 💾 Flushing collection '${collectionName}' to make data available...`);
+        await this.client.flush({
+            collection_names: [collectionName]
+        });
+        console.log(`[MilvusDB] ✅ Collection '${collectionName}' flushed successfully`);
+    }
 }
