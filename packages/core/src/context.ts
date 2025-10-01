@@ -1,7 +1,8 @@
 import {
     Splitter,
     CodeChunk,
-    AstCodeSplitter
+    AstCodeSplitter,
+    JsonSplitter
 } from './splitter';
 import {
     Embedding,
@@ -29,7 +30,9 @@ const DEFAULT_SUPPORTED_EXTENSIONS = [
     '.cs', '.go', '.rs', '.php', '.rb', '.swift', '.kt', '.scala', '.m', '.mm',
     // Text and markup files
     '.md', '.markdown', '.ipynb',
-    // '.txt',  '.json', '.yaml', '.yml', '.xml', '.html', '.htm',
+    // Data formats
+    '.json',
+    // '.txt', '.yaml', '.yml', '.xml', '.html', '.htm',
     // '.css', '.scss', '.less', '.sql', '.sh', '.bash', '.env'
 ];
 
@@ -100,6 +103,7 @@ export class Context {
     private embedding: Embedding;
     private vectorDatabase: VectorDatabase;
     private codeSplitter: Splitter;
+    private jsonSplitter: JsonSplitter;
     private supportedExtensions: string[];
     private ignorePatterns: string[];
     private synchronizers = new Map<string, FileSynchronizer>();
@@ -118,6 +122,7 @@ export class Context {
         this.vectorDatabase = config.vectorDatabase;
 
         this.codeSplitter = config.codeSplitter || new AstCodeSplitter(2500, 300);
+        this.jsonSplitter = new JsonSplitter(1000, 100);
 
         // Load custom extensions from environment variables
         const envCustomExtensions = this.getCustomExtensionsFromEnv();
@@ -173,6 +178,13 @@ export class Context {
      */
     getCodeSplitter(): Splitter {
         return this.codeSplitter;
+    }
+
+    /**
+     * Get JSON splitter instance
+     */
+    getJsonSplitter(): JsonSplitter {
+        return this.jsonSplitter;
     }
 
     /**
@@ -253,7 +265,7 @@ export class Context {
     ): Promise<{ indexedFiles: number; totalChunks: number; status: 'completed' | 'limit_reached' }> {
         const isHybrid = this.getIsHybrid();
         const searchType = isHybrid === true ? 'hybrid search' : 'semantic search';
-        console.log(`[Context] 🚀 Starting to index codebase with ${searchType}: ${codebasePath}`);
+        console.log(`[Context] 🚀🚀🚀🚀🚀🚀🚀 Starting to index codebase with ${searchType}: ${codebasePath}`);
 
         // 1. Load ignore patterns from various ignore files
         await this.loadIgnorePatterns(codebasePath);
@@ -627,9 +639,11 @@ export class Context {
         const collectionType = isHybrid === true ? 'hybrid vector' : 'vector';
         console.log(`[Context] 🔧 Preparing ${collectionType} collection for codebase: ${codebasePath}${forceReindex ? ' (FORCE REINDEX)' : ''}`);
         const collectionName = this.getCollectionName(codebasePath);
+        console.log(`[Context] abbbbb1 ${collectionName}`);
 
         // Check if collection already exists
         const collectionExists = await this.vectorDatabase.hasCollection(collectionName);
+        console.log(`[Context] abbbbb2`);
 
         if (collectionExists && !forceReindex) {
             console.log(`📋 Collection ${collectionName} already exists, skipping creation`);
@@ -716,7 +730,8 @@ export class Context {
             try {
                 const content = await fs.promises.readFile(filePath, 'utf-8');
                 const language = this.getLanguageFromExtension(path.extname(filePath));
-                const chunks = await this.codeSplitter.split(content, language, filePath);
+                const splitter = this.selectSplitter(language);
+                const chunks = await splitter.split(content, language, filePath);
 
                 // Log files with many chunks or large content
                 if (chunks.length > 50) {
@@ -903,9 +918,24 @@ export class Context {
             '.scala': 'scala',
             '.m': 'objective-c',
             '.mm': 'objective-c',
-            '.ipynb': 'jupyter'
+            '.ipynb': 'jupyter',
+            '.json': 'json'
         };
         return languageMap[ext] || 'text';
+    }
+
+    /**
+     * Smart splitter selection based on file language/format
+     * Uses specialized splitters for optimal chunking:
+     * - JsonSplitter for JSON files (recursive splitting preserving structure)
+     * - AstCodeSplitter for code files (AST-based with LangChain fallback)
+     */
+    private selectSplitter(language: string): Splitter {
+        if (language === 'json') {
+            console.log('🔧 Selected JsonSplitter for JSON format');
+            return this.jsonSplitter;
+        }
+        return this.codeSplitter;
     }
 
     /**
@@ -1180,22 +1210,26 @@ export class Context {
     /**
      * Get current splitter information
      */
-    getSplitterInfo(): { type: string; hasBuiltinFallback: boolean; supportedLanguages?: string[] } {
+    getSplitterInfo(): { type: string; hasBuiltinFallback: boolean; supportedLanguages?: string[]; hasJsonSupport?: boolean } {
         const splitterName = this.codeSplitter.constructor.name;
+
+        const info: { type: string; hasBuiltinFallback: boolean; supportedLanguages?: string[]; hasJsonSupport?: boolean } = {
+            type: 'unknown',
+            hasBuiltinFallback: false,
+            hasJsonSupport: true
+        };
 
         if (splitterName === 'AstCodeSplitter') {
             const { AstCodeSplitter } = require('./splitter/ast-splitter');
-            return {
-                type: 'ast',
-                hasBuiltinFallback: true,
-                supportedLanguages: AstCodeSplitter.getSupportedLanguages()
-            };
+            info.type = 'ast';
+            info.hasBuiltinFallback = true;
+            info.supportedLanguages = AstCodeSplitter.getSupportedLanguages?.() || [];
         } else {
-            return {
-                type: 'langchain',
-                hasBuiltinFallback: false
-            };
+            info.type = 'langchain';
+            info.hasBuiltinFallback = false;
         }
+
+        return info;
     }
 
     /**
@@ -1203,6 +1237,11 @@ export class Context {
      * @param language Programming language
      */
     isLanguageSupported(language: string): boolean {
+        // JSON is always supported via dedicated JsonSplitter
+        if (language === 'json') {
+            return true;
+        }
+
         const splitterName = this.codeSplitter.constructor.name;
 
         if (splitterName === 'AstCodeSplitter') {
@@ -1218,7 +1257,15 @@ export class Context {
      * Get which strategy would be used for a specific language
      * @param language Programming language
      */
-    getSplitterStrategyForLanguage(language: string): { strategy: 'ast' | 'langchain'; reason: string } {
+    getSplitterStrategyForLanguage(language: string): { strategy: 'ast' | 'langchain' | 'json'; reason: string } {
+        // JSON files use dedicated JsonSplitter
+        if (language === 'json') {
+            return {
+                strategy: 'json',
+                reason: 'Using specialized JsonSplitter for recursive JSON splitting'
+            };
+        }
+
         const splitterName = this.codeSplitter.constructor.name;
 
         if (splitterName === 'AstCodeSplitter') {
