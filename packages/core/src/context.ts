@@ -242,13 +242,55 @@ export class Context {
 
     /**
      * Generate collection name based on codebase path and hybrid mode
+     * The collection name encodes the path using base64url for reversibility
      */
     public getCollectionName(codebasePath: string): string {
         const isHybrid = this.getIsHybrid();
         const normalizedPath = path.resolve(codebasePath);
-        const hash = crypto.createHash('md5').update(normalizedPath).digest('hex');
+
+        // Encode path as base64url (URL-safe base64)
+        const encodedPath = Buffer.from(normalizedPath)
+            .toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+
         const prefix = isHybrid === true ? 'hybrid_code_chunks' : 'code_chunks';
-        return `${prefix}_${hash.substring(0, 8)}`;
+        return `${prefix}_${encodedPath}`;
+    }
+
+    /**
+     * Decode collection name to get the original codebase path
+     * @param collectionName Collection name to decode
+     * @returns Original codebase path or null if invalid format
+     */
+    public getPathFromCollectionName(collectionName: string): string | null {
+        try {
+            // Extract the encoded path after the prefix
+            const match = collectionName.match(/^(?:hybrid_code_chunks|code_chunks)_(.+)$/);
+            if (!match) {
+                return null;
+            }
+
+            const encodedPath = match[1];
+
+            // Convert base64url back to base64
+            let base64 = encodedPath
+                .replace(/-/g, '+')
+                .replace(/_/g, '/');
+
+            // Add padding if needed
+            while (base64.length % 4) {
+                base64 += '=';
+            }
+
+            // Decode base64 to get original path
+            const decodedPath = Buffer.from(base64, 'base64').toString('utf-8');
+            return decodedPath;
+        } catch (error) {
+            console.error('[Context] Failed to decode collection name:', error);
+            return null;
+        }
     }
 
     /**
