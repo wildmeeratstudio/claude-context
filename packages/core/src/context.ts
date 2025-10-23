@@ -306,7 +306,8 @@ export class Context {
     async indexCodebase(
         codebasePath: string,
         progressCallback?: (progress: { phase: string; current: number; total: number; percentage: number }) => void,
-        forceReindex: boolean = false
+        forceReindex: boolean = false,
+        description: string | null = null
     ): Promise<{ indexedFiles: number; totalChunks: number; status: 'completed' | 'limit_reached' }> {
         const isHybrid = this.getIsHybrid();
         const searchType = isHybrid === true ? 'hybrid search' : 'semantic search';
@@ -333,7 +334,7 @@ export class Context {
         // 2. Check and prepare vector collection (use original codebasePath for unique collection name)
         progressCallback?.({ phase: 'Preparing collection...', current: 0, total: 100, percentage: 0 });
         console.log(`Debug2: Preparing vector collection for codebase${forceReindex ? ' (FORCE REINDEX)' : ''}`);
-        await this.prepareCollection(codebasePath, forceReindex);
+        await this.prepareCollection(codebasePath, forceReindex, description);
 
         // 3. Recursively traverse codebase to get all supported files
         progressCallback?.({ phase: 'Scanning files...', current: 5, total: 100, percentage: 5 });
@@ -972,16 +973,15 @@ export class Context {
     /**
      * Prepare vector collection
      */
-    private async prepareCollection(codebasePath: string, forceReindex: boolean = false): Promise<void> {
+    private async prepareCollection(codebasePath: string, forceReindex: boolean = false, description: string | null = null): Promise<void> {
         const isHybrid = this.getIsHybrid();
         const collectionType = isHybrid === true ? 'hybrid vector' : 'vector';
         console.log(`[Context] 🔧 Preparing ${collectionType} collection for codebase: ${codebasePath}${forceReindex ? ' (FORCE REINDEX)' : ''}`);
         const collectionName = this.getCollectionName(codebasePath);
-        console.log(`[Context] abbbbb1 ${collectionName}`);
+        console.log(`[Context] collection name ${collectionName}: ${description}`);
 
         // Check if collection already exists
         const collectionExists = await this.vectorDatabase.hasCollection(collectionName);
-        console.log(`[Context] abbbbb2`);
 
         if (collectionExists && !forceReindex) {
             console.log(`📋 Collection ${collectionName} already exists, skipping creation`);
@@ -1000,9 +1000,9 @@ export class Context {
         const dirName = path.basename(codebasePath);
 
         if (isHybrid === true) {
-            await this.vectorDatabase.createHybridCollection(collectionName, dimension, `Hybrid Index for ${dirName}`);
+            await this.vectorDatabase.createHybridCollection(collectionName, dimension, description || `Hybrid Index for ${dirName}`);
         } else {
-            await this.vectorDatabase.createCollection(collectionName, dimension, `Index for ${dirName}`);
+            await this.vectorDatabase.createCollection(collectionName, dimension, description || `Index for ${dirName}`);
         }
 
         console.log(`[Context] ✅ Collection ${collectionName} created successfully (dimension: ${dimension})`);
