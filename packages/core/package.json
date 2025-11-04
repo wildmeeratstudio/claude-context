@@ -54,7 +54,6 @@
         "tree-sitter-rust": "^0.21.0",
         "tree-sitter-scala": "^0.24.0",
         "tree-sitter-typescript": "^0.21.0",
-        "tslib": "^2.8.1",
         "typescript": "^5.0.0",
         "voyageai": "^0.0.4"
     },
