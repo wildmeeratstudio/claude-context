@@ -103,7 +103,7 @@ async function getContext(): Promise<Context> {
       baseURL: process.env.CC_OPENAI_BASE_URL || process.env.OPENAIURL
     });
 
-    const vectorDatabase = new MilvusVectorDatabase({
+    const vectorDatabase = new MilvusRestfulVectorDatabase({
       address: process.env.CC_MILVUS_ADDRESS || '',
       token: process.env.CC_MILVUS_API_KEY || ''
     });

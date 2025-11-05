@@ -1,13 +1,13 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "Claude Context API Documentation",
+    "title": "API Documentation",
     "version": "1.0.0",
-    "description": "API documentation for the Claude Context semantic search and codebase indexing service."
+    "description": "This is the OpenAPI specification for your project."
   },
   "servers": [
     {
-      "url": "http://localhost:3000/api",
+      "url": "http://172.21.130.106:1311/api",
       "description": "Local development server"
     }
   ],
@@ -20,7 +20,99 @@
       }
     },
     "schemas": {
-      "IndexRequest": {}
+      "ClearRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "clear"
+            ],
+            "description": "* Path to the codebase collection to clear",
+            "nullable": false
+          },
+          "codebasePath": {
+            "type": "string",
+            "nullable": false
+          }
+        }
+      },
+      "IndexRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "index"
+            ],
+            "description": "* Absolute path to the codebase directory",
+            "nullable": false
+          },
+          "codebasePath": {
+            "type": "string",
+            "description": "* Unique session ID for tracking progress",
+            "nullable": false
+          },
+          "sessionId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "GetRelativePathsRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "get_relative_paths"
+            ],
+            "description": "* Path to the indexed codebase",
+            "nullable": false
+          },
+          "codebasePath": {
+            "type": "string",
+            "nullable": false
+          }
+        }
+      },
+      "SearchRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "search"
+            ],
+            "description": "* Path to the indexed codebase",
+            "nullable": false
+          },
+          "codebasePath": {
+            "type": "string",
+            "description": "* Search query in natural language",
+            "nullable": false
+          },
+          "query": {
+            "type": "string",
+            "description": "* Maximum number of results to return (default: 5)",
+            "nullable": false
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "* Similarity threshold (0-1, default: 0.5)",
+            "nullable": true
+          },
+          "threshold": {
+            "type": "number",
+            "description": "* Optional filter expression for metadata fields",
+            "nullable": true
+          },
+          "filter": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      }
     },
     "responses": {
       "400": {
@@ -148,6 +240,214 @@
   "schemaFiles": [],
   "outputDir": "./public",
   "paths": {
+    "/collections": {
+      "get": {
+        "operationId": "get-collections",
+        "summary": "Get all collections",
+        "description": "Retrieve a list of all indexed codebase collections",
+        "tags": [
+          "Collections"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCollectionsResponse:Successfully retrieved collections list"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          }
+        }
+      }
+    },
+    "/relative-paths": {
+      "post": {
+        "operationId": "post-relative-paths",
+        "summary": "Get relative paths from collection",
+        "description": "Retrieve all unique relative file paths from an indexed codebase collection",
+        "tags": [
+          "Collections"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetRelativePathsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetRelativePathsResponse:Successfully retrieved relative paths"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          }
+        }
+      }
+    },
+    "/collections/clear": {
+      "post": {
+        "operationId": "post-collections-clear",
+        "summary": "Clear a collection",
+        "description": "Delete an indexed codebase collection",
+        "tags": [
+          "Collections"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClearResponse:Collection cleared successfully"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          }
+        }
+      }
+    },
+    "/index": {
+      "post": {
+        "operationId": "post-index",
+        "summary": "Index a codebase",
+        "description": "Index a codebase directory for semantic search. Returns indexing statistics and supports progress tracking via sessionId.",
+        "tags": [
+          "Indexing"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexResponse:Codebase indexed successfully"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          }
+        }
+      },
+      "get": {
+        "operationId": "get-index",
+        "summary": "Get indexing progress",
+        "description": "Get real-time indexing progress via Server-Sent Events (SSE) or check session status",
+        "tags": [
+          "Indexing"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgressData:Progress update or session status"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          }
+        }
+      }
+    },
+    "/search": {
+      "post": {
+        "operationId": "post-search",
+        "summary": "Search codebase",
+        "description": "Perform semantic search on an indexed codebase using natural language queries",
+        "tags": [
+          "Search"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse:Search completed successfully"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "500": {
+            "$ref": "#/components/responses/500"
+          }
+        }
+      }
+    },
     "/semantic-search": {
       "post": {
         "operationId": "post-semantic-search",
