@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Context, MilvusRestfulVectorDatabase, MilvusVectorDatabase, OpenAIEmbedding } from '@/src';
+import type {
+  IndexRequest,
+  SearchRequest,
+  GetCollectionsRequest,
+  ClearRequest,
+  GetRelativePathsRequest,
+  IndexResponse,
+  SearchResponse,
+  GetCollectionsResponse,
+  ClearResponse,
+  GetRelativePathsResponse,
+  ErrorResponse,
+  ProgressData
+} from './types';
 
 
-interface ProgressData {
+interface ProgressDataInternal {
   phase: string;
   percentage: number;
   message?: string;
@@ -17,7 +31,7 @@ interface ActiveSession {
 }
 
 // Progress store for tracking indexing progress
-const progressStore = new Map<string, ProgressData>();
+const progressStore = new Map<string, ProgressDataInternal>();
 const activeSessions = new Map<string, ActiveSession>();
 
 // Cleanup interval (run every 30 seconds)
@@ -25,7 +39,7 @@ const CLEANUP_INTERVAL = 30 * 1000;
 const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // Helper function to update progress
-function updateProgress(sessionId: string, progress: ProgressData) {
+function updateProgress(sessionId: string, progress: ProgressDataInternal) {
   if (sessionId) {
     progressStore.set(sessionId, {
       ...progress,
@@ -104,6 +118,17 @@ async function getContext(): Promise<Context> {
   }
 }
 
+/**
+ * Semantic Search API
+ * @description Main API endpoint for codebase indexing, searching, and management. Supports multiple actions: index a codebase, perform semantic search, list collections, clear collections, and get relative paths from a collection.
+ * @body IndexRequest | SearchRequest | GetCollectionsRequest | ClearRequest | GetRelativePathsRequest
+ * @response 200:IndexResponse | SearchResponse | GetCollectionsResponse | ClearResponse | GetRelativePathsResponse
+ * @response 400:ErrorResponse:Bad request - missing required parameters
+ * @response 404:ErrorResponse:Collection not found
+ * @response 500:ErrorResponse:Internal server error
+ * @tag Semantic Search
+ * @openapi
+ */
 export async function POST(request: NextRequest) {
   let context: Context | null = null;
   console.log('POST request received');
@@ -249,6 +274,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/**
+ * Get indexing progress or session status
+ * @description Retrieve real-time indexing progress via Server-Sent Events (SSE) stream, or check session status with action=status parameter.
+ * @params {sessionId:string:Session ID for tracking indexing progress, action?:string:Optional action parameter - use 'status' to check session status instead of streaming}
+ * @response 200:ProgressData:Server-Sent Events stream with indexing progress updates
+ * @response 400:ErrorResponse:Missing sessionId parameter
+ * @tag Semantic Search
+ * @openapi
+ */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get('sessionId');
@@ -402,6 +436,14 @@ export async function GET(request: NextRequest) {
   return new Response(stream, { headers });
 }
 
+/**
+ * Clear context cache
+ * @description Clear the internal context cache. If cacheKey is provided, clears specific cache entry, otherwise clears all cache.
+ * @params {cacheKey?:string:Optional cache key to clear specific entry}
+ * @response 200:{success:boolean, message:string}:Cache cleared successfully
+ * @tag Semantic Search
+ * @openapi
+ */
 export async function DELETE(request: NextRequest) {
   const url = new URL(request.url);
   const cacheKey = url.searchParams.get('cacheKey');
