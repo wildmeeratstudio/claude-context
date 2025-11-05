@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Context, MilvusVectorDatabase, OpenAIEmbedding } from '@/src';
+import { Context, MilvusRestfulVectorDatabase, MilvusVectorDatabase, OpenAIEmbedding } from '@/src';
 
 
 interface ProgressData {
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
           console.log(`Registering session: ${sessionId}`);
           registerSession(sessionId);
         }
-        console.log(`Indexing codebase: ${codebasePath}`);
+        console.log(`~~~~~~~~~~~~~~~~~~~~~~~~~ Indexing codebase: ${codebasePath}`);
         const stats = await context?.indexCodebase(
           codebasePath,
           (progress: any) => {
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
       }
 
       case 'search': {
-        const { codebasePath, query, maxResults = 5, threshold = 0.5, filterExpr = "" } = params;
+        const { codebasePath, query, maxResults = 5, threshold = 0.5, filter = "" } = params;
         const maxResultsNum = typeof maxResults === 'string' ? parseInt(maxResults, 10) : maxResults;
         console.log(codebasePath, query, maxResultsNum)
         if (!codebasePath || !query) {
@@ -201,9 +201,35 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const results = await context.semanticSearch(codebasePath, query, maxResultsNum, threshold, filterExpr);
+        const results = await context.semanticSearch(codebasePath, query, maxResultsNum, threshold, filter);
 
         return NextResponse.json({ success: true, results });
+      }
+
+      case 'get_relative_paths': {
+        const { codebasePath } = params;
+        if (!codebasePath) {
+          return NextResponse.json(
+            { error: 'Project path is required' },
+            { status: 400 }
+          );
+        }
+
+        const collectionName = context.getCollectionName(codebasePath);
+        const vectorDb = context.getVectorDatabase();
+
+        // Check if collection exists
+        const hasCollection = await vectorDb.hasCollection(collectionName);
+        if (!hasCollection) {
+          return NextResponse.json(
+            { error: 'Collection not found' },
+            { status: 404 }
+          );
+        }
+
+        const relativePaths = await vectorDb.getUniqueFieldsValue(collectionName, ['relativePath']);
+
+        return NextResponse.json({ success: true, relativePaths });
       }
 
       default:

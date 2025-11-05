@@ -137,6 +137,14 @@ export interface VectorDatabase {
      * @param collectionName Collection name
      */
     flush(collectionName: string): Promise<void>;
+
+    /**
+     * Get unique field values from all documents in the collection
+     * @param collectionName Collection name
+     * @param fields Array of field names to get unique values for
+     * @param batchSize Batch size for iterator (default: 1000)
+     */
+    getUniqueFieldsValue(collectionName: string, fields: string[], batchSize?: number): Promise<string[]>;
 }
 
 /**

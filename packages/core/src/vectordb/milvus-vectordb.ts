@@ -776,4 +776,47 @@ export class MilvusVectorDatabase implements VectorDatabase {
         });
         console.log(`[MilvusDB] ✅ Collection '${collectionName}' flushed successfully`);
     }
+
+    /**
+     * Get unique fields' value from all documents in the collection
+     * Uses queryIterator to handle collections with more than 16384 documents
+     */
+    async getUniqueFieldsValue(collectionName: string, fields: string[]=['relativePath'], batchSize: number = 1000): Promise<string[]> {
+        await this.ensureInitialized();
+        await this.ensureLoaded(collectionName);
+
+        if (!this.client) {
+            throw new Error('MilvusClient is not initialized after ensureInitialized().');
+        }
+
+        console.log(`[MilvusDB] 🔍 Fetching unique field values for '${fields.join(', ')}' from collection '${collectionName}'...`);
+
+        const unique = new Set<string>();
+
+        try {
+            const iterator = await this.client.queryIterator({
+                collection_name: collectionName,
+                output_fields: fields,
+                batchSize: batchSize,
+            });
+
+            for await (const batch of iterator) {
+                for (const row of batch) {
+                    // Iterate through all requested fields
+                    for (const field of fields) {
+                        if (row[field] !== undefined && row[field] !== null) {
+                            unique.add(String(row[field]));
+                        }
+                    }
+                }
+            }
+
+            console.log(`[MilvusDB] ✅ Found ${unique.size} unique values`);
+            return Array.from(unique);
+
+        } catch (error) {
+            console.error(`[MilvusDB] ❌ Failed to fetch unique values for '${fields.join(', ')}' from collection '${collectionName}':`, error);
+            throw error;
+        }
+    }
 }

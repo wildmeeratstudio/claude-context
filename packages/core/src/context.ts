@@ -24,6 +24,8 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { FileSynchronizer } from './sync/synchronizer';
 
+import {RTK_C_AstCodeSplitter} from './splitter/rtk-c-ast-splitter';
+
 const DEFAULT_SUPPORTED_EXTENSIONS = [
     // Programming languages
     '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.cpp', '.c', '.h', '.hpp',
@@ -103,6 +105,7 @@ export class Context {
     private embedding: Embedding;
     private vectorDatabase: VectorDatabase;
     private codeSplitter: Splitter;
+    private c_codeSplitter: Splitter;
     private jsonSplitter: JsonSplitter;
     private supportedExtensions: string[];
     private ignorePatterns: string[];
@@ -123,6 +126,7 @@ export class Context {
 
         this.codeSplitter = config.codeSplitter || new AstCodeSplitter(2500, 300);
         this.jsonSplitter = new JsonSplitter(1000, 100);
+        this.c_codeSplitter = new RTK_C_AstCodeSplitter(5000, 300);
 
         // Load custom extensions from environment variables
         const envCustomExtensions = this.getCustomExtensionsFromEnv();
@@ -1344,9 +1348,17 @@ export class Context {
      * - AstCodeSplitter for code files (AST-based with LangChain fallback)
      */
     private selectSplitter(language: string): Splitter {
+        // RTK
         if (language === 'json') {
             console.log('🔧 Selected JsonSplitter for JSON format');
             return this.jsonSplitter;
+        }
+        // RTK
+        if (language === 'c')
+        {
+            console.log('🔧 Selected RTK customized for C format');
+            return this.c_codeSplitter;
+
         }
         return this.codeSplitter;
     }

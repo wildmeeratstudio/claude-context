@@ -817,4 +817,60 @@ export class MilvusRestfulVectorDatabase implements VectorDatabase {
             throw error;
         }
     }
+
+    /**
+     * Get unique fields' value from all documents in the collection
+     * Uses query with pagination to handle collections with more than 16384 documents
+     */
+    async getUniqueFieldsValue(collectionName: string, fields: string[] = ['relativePath'], batchSize: number = 1000): Promise<string[]> {
+        await this.ensureInitialized();
+
+        console.log(`[MilvusRestfulDB] 🔍 Fetching unique field values for '${fields.join(', ')}' from collection '${collectionName}'...`);
+
+        const unique = new Set<string>();
+
+        try {
+            const restfulConfig = this.config as MilvusRestfulConfig;
+            let offset = 0;
+            let hasMore = true;
+
+            while (hasMore) {
+                const response = await this.makeRequest('/entities/query', 'POST', {
+                    collectionName,
+                    filter: '',
+                    outputFields: fields,
+                    offset,
+                    limit: batchSize,
+                    dbName: restfulConfig.database
+                });
+
+                if (response.data && Array.isArray(response.data)) {
+                    for (const row of response.data) {
+                        // Iterate through all requested fields
+                        for (const field of fields) {
+                            if (row[field] !== undefined && row[field] !== null) {
+                                unique.add(String(row[field]));
+                            }
+                        }
+                    }
+
+                    // Check if there are more results
+                    if (response.data.length < batchSize) {
+                        hasMore = false;
+                    } else {
+                        offset += batchSize;
+                    }
+                } else {
+                    hasMore = false;
+                }
+            }
+
+            console.log(`[MilvusRestfulDB] ✅ Found ${unique.size} unique values`);
+            return Array.from(unique);
+
+        } catch (error) {
+            console.error(`[MilvusRestfulDB] ❌ Failed to fetch unique values for '${fields.join(', ')}' from collection '${collectionName}':`, error);
+            throw error;
+        }
+    }
 }
