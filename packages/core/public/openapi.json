@@ -112,6 +112,124 @@
             "nullable": true
           }
         }
+      },
+      "GetCollectionsResponse:Successfully retrieved collections list": {
+        "type": "object",
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of collection names"
+          }
+        }
+      },
+      "GetRelativePathsResponse:Successfully retrieved relative paths": {
+        "type": "object",
+        "properties": {
+          "relativePaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of relative file paths"
+          }
+        }
+      },
+      "ClearResponse:Collection cleared successfully": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "IndexResponse:Codebase indexed successfully": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "stats": {
+            "type": "object",
+            "properties": {
+              "totalFiles": {
+                "type": "number"
+              },
+              "indexedFiles": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "SearchResponse:Search completed successfully": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "filePath": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "score": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ProgressData:Progress update or session status": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ProgressData:Server-Sent Events stream with indexing progress updates": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "{success:boolean, message:string}:Cache cleared successfully": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
       }
     },
     "responses": {

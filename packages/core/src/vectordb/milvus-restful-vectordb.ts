@@ -187,7 +187,6 @@ export class MilvusRestfulVectorDatabase implements VectorDatabase {
 
     async createCollection(collectionName: string, dimension: number, description?: string): Promise<void> {
         await this.ensureInitialized();
-
         try {
             const restfulConfig = this.config as MilvusRestfulConfig;
             // Build collection schema based on the original milvus-vectordb.ts implementation
@@ -196,6 +195,7 @@ export class MilvusRestfulVectorDatabase implements VectorDatabase {
             const collectionSchema = {
                 collectionName,
                 dbName: restfulConfig.database,
+                description: description,
                 schema: {
                     enableDynamicField: false,
                     fields: [
@@ -522,6 +522,7 @@ export class MilvusRestfulVectorDatabase implements VectorDatabase {
             const collectionSchema = {
                 collectionName,
                 dbName: restfulConfig.database,
+                description:description,
                 schema: {
                     enableDynamicField: false,
                     functions: [
